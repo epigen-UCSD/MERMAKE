@@ -84,7 +84,7 @@ class Deconvolver:
 		if tile_size:
 			tile_shape = (tile_size + 2*overlap, tile_size + 2*overlap)
 			self.tile_pad = xp.empty((2*zpad + self.tile_height, *tile_shape), dtype=xp.float32)
-			self.tile_res = xp.empty((         self.tile_height, *tile_shape), dtype=xp.float32)
+			self.tile_res = xp.empty((		 self.tile_height, *tile_shape), dtype=xp.float32)
 			self.tile_fft = xp.empty_like(self.tile_pad, dtype=xp.complex64)
 			self.tile_buf = xp.empty_like(self.tile_res)
 
@@ -135,11 +135,37 @@ class Deconvolver:
 		xp = cp.get_array_module(image)
 		if output is None:
 			output = xp.empty_like(image, dtype=xp.float32)
+
+		sz, sx, sy = image.shape
 		# Create a CUDA stream for better synchronization
 		stream = cp.cuda.Stream(non_blocking=True)
 		with stream:
-			for x,y,tile,_ in self.tile_wise(image, flat_field = flat_field, blur_radius = blur_radius ):
-				output[:,x:x+self.tile_size,y:y+self.tile_size] = tile[:,self.overlap:-self.overlap,self.overlap:-self.overlap]
+			for x, y, tile, _ in self.tile_wise(image, flat_field=flat_field, blur_radius=blur_radius):
+				'''
+				# Pre-calculate dimensions only once outside of any memory operations
+				x_end = min(x + self.tile_size, self.sx)
+				y_end = min(y + self.tile_size, self.sy)
+				width = x_end - x
+				height = y_end - y
+
+				# Use direct slicing with pre-calculated dimensions
+				output[:, x:x_end, y:y_end] = tile[:, self.overlap:self.overlap+width, self.overlap:self.overlap+height]
+				'''
+				# Calculate how much of the output we can update with this tile
+				max_x = min(x + self.tile_size, sx)
+				max_y = min(y + self.tile_size, sy)
+				
+				# How much of the processed tile (after removing overlap) we can use
+				tile_usable_width = tile.shape[2] - 2*self.overlap  # Width in the tile
+				tile_usable_height = tile.shape[1] - 2*self.overlap  # Height in the tile
+				
+				# The final amount we can safely copy (limited by both output and tile)
+				width_to_copy = min(max_y - y, tile_usable_width)
+				height_to_copy = min(max_x - x, tile_usable_height)
+				
+				# Update the output with the usable part of the tile
+				output[:, x:x+height_to_copy, y:y+width_to_copy] = tile[:,self.overlap:self.overlap+height_to_copy,self.overlap:self.overlap+width_to_copy]
+								  
 		stream.synchronize()
 		return output
 
