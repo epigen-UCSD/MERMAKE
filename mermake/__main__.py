@@ -229,6 +229,9 @@ def main():
 				executor.submit(queue.save_xfits, image, icol)
 				del Xh_plus, Xh_minus
 
+			if hasattr(args.paths, 'dapi_only') and args.paths.dapi_only:
+				continue
+
 			slices_chan = tuple([slice(0,None)] * 3)
 			# this is for background subtraction
 			aligner = None
