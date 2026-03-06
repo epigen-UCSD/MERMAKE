@@ -402,6 +402,11 @@ class ImageQueue:
 	def hsorted(self, files):
 		return sorted(files, key=lambda f: get_ih(os.path.dirname(f)))
 
+	def output_exists(self, filepath):
+		if hasattr(self, 'redo') and self.redo:
+			return False
+		return os.path.exists(filepath)
+
 	def containerize(self, path):
 		# everythign in this method is done async and prefetched
 
@@ -413,7 +418,7 @@ class ImageQueue:
 			filename = self.get_name(path, icol)
 			filepath = os.path.join(self.output_folder, filename)
 			# only compute if the image has not been processed or if it is background
-			if not os.path.exists(filepath) or container in self.background_files:
+			if not self.output_exists(filepath) or container in self.background_files:
 				container[icol].compute()
 			else:
 				Xh = cp.load(filepath)['Xh']
@@ -421,7 +426,7 @@ class ImageQueue:
 		icol = -1
 		filename = self.get_name(path, icol)
 		filepath = os.path.join(self.output_folder, filename)
-		if not os.path.exists(filepath):
+		if not self.output_exists(filepath):
 			container[icol].compute()
 		else:
 			container.Xh_plus = cp.load(filepath)['Xh_plus']
@@ -550,11 +555,11 @@ class ImageQueue:
 		for icol in range(self.shape[0] - 1):
 			filename = self.get_name(path, icol)
 			filepath = os.path.join(self.output_folder, filename)
-			if not os.path.exists(filepath):
+			if not self.output_exists(filepath):
 				return False
 		filename = self.get_name(path, -1)
 		filepath = os.path.join(self.output_folder, filename)
-		if not os.path.exists(filepath):
+		if not self.output_exists(filepath):
 			return False
 		return True
 
@@ -571,7 +576,7 @@ class ImageQueue:
 		path = image.path
 		filename = self.get_name(path, icol)
 		filepath = os.path.join(self.output_folder, filename)
-		if not os.path.exists(filepath):
+		if self.redo or not os.path.exists(filepath):
 			cp.savez_compressed(filepath, version=__version__, args=self.args_array, **data)
 			#  Optional integrity check after saving
 			# this seems to greatly slow everything down
