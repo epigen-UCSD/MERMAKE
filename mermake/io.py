@@ -576,7 +576,7 @@ class ImageQueue:
 		path = image.path
 		filename = self.get_name(path, icol)
 		filepath = os.path.join(self.output_folder, filename)
-		if self.redo or not os.path.exists(filepath):
+		if not self.output_exists(filepath):
 			cp.savez_compressed(filepath, version=__version__, args=self.args_array, **data)
 			#  Optional integrity check after saving
 			# this seems to greatly slow everything down
