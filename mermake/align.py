@@ -160,11 +160,11 @@ def drift_save(data, filepath):
 	with open(filepath, 'wb') as f:
 		pickle.dump(data, f)
 
-def drift(block):
+def drift(block, redo=False):
 	ifov = block.ifov()
 	iset = block.iset()
 	filepath = block.drift_file()
-	if not os.path.exists(filepath):
+	if not os.path.exists(filepath) or redo:
 		ref = block[len(block)//2]
 		dual = DualAligner(ref, th=4)
 		drifts = []

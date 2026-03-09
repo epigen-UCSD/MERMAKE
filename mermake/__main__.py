@@ -174,6 +174,8 @@ def main():
 	message = 'Finding input image files.'
 	print_clean(message)
 
+	redo = hasattr(args.paths, 'redo') and args.paths.redo
+
 	with ImageQueue(args) as queue:
 		print_clean(queue.summary)
 		# set some things based on input images
@@ -229,52 +231,50 @@ def main():
 				executor.submit(queue.save_xfits, image, icol)
 				del Xh_plus, Xh_minus
 
-			if hasattr(args.paths, 'dapi_only') and args.paths.dapi_only:
-				continue
+			if not hasattr(args.paths, 'dapi_only') or (hasattr(args.paths, 'dapi_only') and not args.paths.dapi_only):
+				slices_chan = tuple([slice(0,None)] * 3)
+				# this is for background subtraction
+				aligner = None
+				if image in queue.background_files:
+					aligner = Aligner(image.Xh_plus)
+					block.back = [cp.asarray(image[icol].data) for icol in range(ncol - 1)]
+					continue
+				elif aligner:
+					slices_back, slices_chan = aligner.get_shifted_slices( image.Xh_plus[:,:3], chan.shape )
 
-			slices_chan = tuple([slice(0,None)] * 3)
-			# this is for background subtraction
-			aligner = None
-			if image in queue.background_files:
-				aligner = Aligner(image.Xh_plus)
-				block.back = [cp.asarray(image[icol].data) for icol in range(ncol - 1)]
-				continue
-			elif aligner:
-				slices_back, slices_chan = aligner.get_shifted_slices( image.Xh_plus[:,:3], chan.shape )
+				for icol in range(ncol - 1):
+					data = image[icol].data
+					if not isinstance(data, da.Array):
+						chan.set(data)
+						flat = flats[icol]
 
-			for icol in range(ncol - 1):
-				data = image[icol].data
-				if not isinstance(data, da.Array):
-					chan.set(data)
-					flat = flats[icol]
+						if aligner:
+							# this reflects the subtract so there is no roll over due to datatypes
+							math.subtract_reflect(chan[slices_chan], block.back[icol][slices_back], out=chan[slices_chan])
 
-					if aligner:
-						# this reflects the subtract so there is no roll over due to datatypes
-						math.subtract_reflect(chan[slices_chan], block.back[icol][slices_back], out=chan[slices_chan])
-
-					# there is probably a better way to do the Xh stacking
-					Xhf = []
-					for x,y,tile,raw in deconvolver.hybs.tile_wise(chan[slices_chan], flat[slices_chan[1:]], **vars(args.hybs)):
-						Xh = find_local_maxima(tile, raw = raw, **vars(args.hybs))
-						keep = cp.all((Xh[:,1:3] >= overlap) & (Xh[:,1:3] < cp.array([tile.shape[1] - overlap, tile.shape[2] - overlap])), axis=-1)
-						if cp.any(keep):
-							Xh = Xh[keep]
-							Xh[:,1] += x - overlap
-							Xh[:,2] += y - overlap
-							Xhf.append(Xh)
-					if Xhf:
-						Xhf = cp.vstack(Xhf)
-					else:
-						Xhf = cp.zeros([0,8], dtype=cp.float32)
-					if aligner:
-						Xhf[:,:3] += cp.asarray([s.start for s in slices_chan])
-					setattr(image, f'col{icol}', Xhf)
-					executor.submit(queue.save_xfits, image, icol)
-					del Xhf, Xh, keep
-		    # this block of images for a fov is over
+						# there is probably a better way to do the Xh stacking
+						Xhf = []
+						for x,y,tile,raw in deconvolver.hybs.tile_wise(chan[slices_chan], flat[slices_chan[1:]], **vars(args.hybs)):
+							Xh = find_local_maxima(tile, raw = raw, **vars(args.hybs))
+							keep = cp.all((Xh[:,1:3] >= overlap) & (Xh[:,1:3] < cp.array([tile.shape[1] - overlap, tile.shape[2] - overlap])), axis=-1)
+							if cp.any(keep):
+								Xh = Xh[keep]
+								Xh[:,1] += x - overlap
+								Xh[:,2] += y - overlap
+								Xhf.append(Xh)
+						if Xhf:
+							Xhf = cp.vstack(Xhf)
+						else:
+							Xhf = cp.zeros([0,8], dtype=cp.float32)
+						if aligner:
+							Xhf[:,:3] += cp.asarray([s.start for s in slices_chan])
+						setattr(image, f'col{icol}', Xhf)
+						executor.submit(queue.save_xfits, image, icol)
+						del Xhf, Xh, keep
+			# this block of images for a fov is over
 			if not block.add(image) or hasattr(image, 'last'):
 				# do the drift
-				if result := drift(block):
+				if result := drift(block, redo):
 					executor.submit(drift_save, *result)
 					del result
 				# do the decoding
