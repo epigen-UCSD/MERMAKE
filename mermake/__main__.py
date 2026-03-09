@@ -274,7 +274,7 @@ def main():
 			# this block of images for a fov is over
 			if not block.add(image) or hasattr(image, 'last'):
 				# do the drift
-				if result := drift(block, redo):
+				if result := drift(block, args.drift):
 					executor.submit(drift_save, *result)
 					del result
 				# do the decoding

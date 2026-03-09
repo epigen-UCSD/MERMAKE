@@ -10,14 +10,15 @@ from cupyx.scipy.spatial import KDTree
 #from scipy.spatial import KDTree
 
 class Aligner:
-	def __init__(self, X_ref, resc=5, trim=10, th=None):
+	def __init__(self, X_ref, args):
 		self.xp = cp.get_array_module(X_ref)
-		self.resc = resc
-		self.trim = trim
-		self.th = th
+		self.resc = args.resc
+		self.trim = args.trim
+		self.th = args.th
+		self.corr = args.psfcorr
 		
 		# do thresholding of the maximas
-		if th:
+		if self.th:
 			X_ref = self.threshold(X_ref)
 
 		# unlike scipy the cupy KDTree crashes if given no points, so catch it here
@@ -117,23 +118,23 @@ class Aligner:
 			return tzxy, Npts
 		return tzxy
 
-
 	def threshold(self, X):
 		xp = cp.get_array_module(X)
 		th = self.th
+		corr = self.corr
 		dim = X.shape[1]
 		if X.size:
-			X = X[X[:,-1]>th]
+			X = X[(X[:,-1]>th) & (X[:,-4]>corr)]
 			if X.size:
 				return X
 		return xp.zeros([0,dim])
 
+
 class DualAligner:
-	def __init__(self, ref, th=None):
+	def __init__(self, ref, args):
 		self.xp = cp.get_array_module(ref)
-		self.plus = Aligner(ref.Xh_plus[:,:3], th = th)
-		self.minus = Aligner(ref.Xh_minus[:,:3], th = th)
-		self.th = th
+		self.plus = Aligner(ref.Xh_plus, args)
+		self.minus = Aligner(ref.Xh_minus, args)
 	
 	def get_best_translation_pointsV2(self, obj):
 		xp = self.xp
@@ -160,13 +161,16 @@ def drift_save(data, filepath):
 	with open(filepath, 'wb') as f:
 		pickle.dump(data, f)
 
-def drift(block, redo=False):
+def drift(block, args):
 	ifov = block.ifov()
 	iset = block.iset()
 	filepath = block.drift_file()
-	if not os.path.exists(filepath) or redo:
-		ref = block[len(block)//2]
-		dual = DualAligner(ref, th=4)
+	if not os.path.exists(filepath) or args.redo:
+		if hasattr(args, 'href'):
+			ref = block[args.href]
+		else:
+			ref = block[len(block)//2]
+		dual = DualAligner(ref, args)
 		drifts = []
 		files = []
 		for image in block:
